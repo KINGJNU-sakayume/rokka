@@ -11,10 +11,10 @@ export interface OnboardingPromoData {
 
 interface OnboardingModalProps {
   isOpen: boolean;
-  onComplete: (enlistmentDate: string, promoData: OnboardingPromoData) => void;
+  onComplete: (enlistmentDate: string, promoData: OnboardingPromoData, initialMileage: number) => void;
 }
 
-type Step = 'date' | 'corporal' | 'corporal_detail' | 'sergeant' | 'sergeant_detail';
+type Step = 'date' | 'corporal' | 'corporal_detail' | 'sergeant' | 'sergeant_detail' | 'mileage_balance';
 
 /** 표준 진급일 계산 (조기/누락 없음) */
 function stdPromoDate(enlistmentDate: string, offsetMonths: number): Date {
@@ -35,6 +35,12 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
   const [sgtEarly,  setSgtEarly]  = useState(0);  // 0~2
   const [sgtMissed, setSgtMissed] = useState(0);  // 0~1
 
+  // 초기 마일리지 잔액
+  const [initialMileage, setInitialMileage] = useState(0);
+
+  // 진급 데이터를 마일리지 입력 단계까지 임시 보관
+  const [pendingPromo, setPendingPromo] = useState<OnboardingPromoData | null>(null);
+
   // 모달이 열릴 때마다 상태 초기화 (데이터 초기화 후 재진입 시 이전 step/date 잔류 방지)
   useEffect(() => {
     if (isOpen) {
@@ -45,6 +51,8 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
       setCplMissed(0);
       setSgtEarly(0);
       setSgtMissed(0);
+      setInitialMileage(0);
+      setPendingPromo(null);
     }
   }, [isOpen]);
 
@@ -57,16 +65,22 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
   /** 병장1호봉 이상인지 (표준 기준) */
   const pastSergeant = date ? !isBefore(today, stdPromoDate(date, 15)) : false;
 
+  const goToMileageStep = (ec = cplEarly, mc = cplMissed, es = sgtEarly, ms = sgtMissed) => {
+    setPendingPromo({ earlyToCorporal: ec, earlyToSergeant: es, missedCorporal: mc, missedSergeant: ms });
+    setStep('mileage_balance');
+  };
+
+  const finish = () => {
+    const promo = pendingPromo ?? { earlyToCorporal: cplEarly, earlyToSergeant: sgtEarly, missedCorporal: cplMissed, missedSergeant: sgtMissed };
+    onComplete(date, promo, initialMileage);
+  };
+
   const handleDateNext = () => {
     if (!date) { setDateError('입대일을 입력해주세요.'); return; }
     if (isNaN(new Date(date).getTime())) { setDateError('유효한 날짜를 입력해주세요.'); return; }
     setDateError('');
     if (pastCorporal) { setStep('corporal'); }
-    else              { finish(); }
-  };
-
-  const finish = (ec = cplEarly, mc = cplMissed, es = sgtEarly, ms = sgtMissed) => {
-    onComplete(date, { earlyToCorporal: ec, earlyToSergeant: es, missedCorporal: mc, missedSergeant: ms });
+    else              { goToMileageStep(); }
   };
 
   // ── 단계별 렌더 ──────────────────────────────────────────────────────────────
@@ -123,7 +137,7 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
               <p className="text-gray-400 text-sm">상병 진급 시 정상진급 하셨나요?</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setCplEarly(0); setCplMissed(0); if (pastSergeant) setStep('sergeant'); else finish(0,0,sgtEarly,sgtMissed); }}
+              <button onClick={() => { setCplEarly(0); setCplMissed(0); if (pastSergeant) setStep('sergeant'); else goToMileageStep(0,0,sgtEarly,sgtMissed); }}
                 className="flex-1 py-3 rounded-xl bg-army-green-600 hover:bg-army-green-500 text-white font-semibold transition-all text-sm">
                 예, 정상진급
               </button>
@@ -160,7 +174,7 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
                 </div>
               </div>
             )}
-            <button onClick={() => { if (pastSergeant) setStep('sergeant'); else finish(cplEarly,cplMissed,0,0); }}
+            <button onClick={() => { if (pastSergeant) setStep('sergeant'); else goToMileageStep(cplEarly,cplMissed,0,0); }}
               className="w-full bg-army-green-600 hover:bg-army-green-500 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
               다음 <ChevronRight size={16}/>
             </button>
@@ -175,7 +189,7 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
               <p className="text-gray-400 text-sm">병장 진급 시 정상진급 하셨나요?</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => { setSgtEarly(0); setSgtMissed(0); finish(cplEarly,cplMissed,0,0); }}
+              <button onClick={() => { setSgtEarly(0); setSgtMissed(0); goToMileageStep(cplEarly,cplMissed,0,0); }}
                 className="flex-1 py-3 rounded-xl bg-army-green-600 hover:bg-army-green-500 text-white font-semibold transition-all text-sm">
                 예, 정상진급
               </button>
@@ -212,7 +226,35 @@ export default function OnboardingModal({ isOpen, onComplete }: OnboardingModalP
                 </div>
               </div>
             )}
-            <button onClick={() => finish(cplEarly,cplMissed,sgtEarly,sgtMissed)}
+            <button onClick={() => goToMileageStep(cplEarly,cplMissed,sgtEarly,sgtMissed)}
+              className="w-full bg-army-green-600 hover:bg-army-green-500 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+              다음 <ChevronRight size={16}/>
+            </button>
+          </div>
+        )}
+
+        {/* ── STEP 4: 초기 마일리지 ── */}
+        {step === 'mileage_balance' && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <p className="text-white font-semibold text-base mb-1">마일리지 잔액</p>
+              <p className="text-gray-400 text-sm">현재 보유하신 마일리지를 입력해주세요</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                현재 보유 마일리지 (시간)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={initialMileage}
+                onChange={e => setInitialMileage(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full bg-white/10 border border-white/20 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-army-green-400 focus:ring-1 focus:ring-army-green-400 transition-colors [color-scheme:dark]"
+                placeholder="0"
+              />
+              <p className="text-gray-500 text-xs mt-1.5">없으면 0을 입력하거나 그냥 넘어가세요</p>
+            </div>
+            <button onClick={finish}
               className="w-full bg-army-green-600 hover:bg-army-green-500 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm">
               시작하기
             </button>

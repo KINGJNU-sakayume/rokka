@@ -9,7 +9,7 @@ interface BottomNavProps {
 const TABS: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: '대시보드', icon: <LayoutDashboard size={22} /> },
   { id: 'calendar',  label: '달력',    icon: <CalendarDays size={22} /> },
-  { id: 'mileage',   label: '마일리지', icon: <Star size={22} /> },
+  { id: 'mileage',   label: '내 기록',  icon: <Star size={22} /> },
 ];
 
 export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {

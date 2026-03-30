@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, CalendarDays } from 'lucide-react';
+import { Plus, X, CalendarDays } from 'lucide-react';
 import CalendarGrid from './CalendarGrid';
 import AddEventModal from './AddEventModal';
 import WeekScheduleModal from './WeekScheduleModal';
@@ -23,16 +23,26 @@ export default function CalendarTab({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | undefined>(undefined);
   const [isWeekScheduleOpen, setIsWeekScheduleOpen] = useState(false);
+  const [isDateSelectionMode, setIsDateSelectionMode] = useState(false);
 
   const { weekSchedules, setWeekName, removeWeekName } = useWeekSchedule();
 
   const handleDayClick = (date: Date) => {
     setSelectedDate(toISODateString(date));
-    setIsModalOpen(true);
+    if (isDateSelectionMode) {
+      setIsDateSelectionMode(false);
+      setIsModalOpen(true);
+    }
+    // else: just shows the week accordion (no modal)
   };
 
   return (
     <div className="space-y-4">
+      {isDateSelectionMode && (
+        <div className="mx-1 px-4 py-2.5 bg-army-dark text-white text-sm font-semibold rounded-xl text-center">
+          날짜를 선택하세요
+        </div>
+      )}
       <CalendarGrid
         events={events}
         weekSchedules={weekSchedules}
@@ -66,10 +76,10 @@ export default function CalendarTab({
       </button>
       {/* 일정 추가 버튼 */}
       <button
-        onClick={() => { setSelectedDate(undefined); setIsModalOpen(true); }}
+        onClick={() => setIsDateSelectionMode(v => !v)}
         className="fixed bottom-20 right-4 w-14 h-14 bg-army-dark text-white rounded-2xl shadow-lg flex items-center justify-center hover:bg-army-dark/90 active:scale-95 transition-all z-30"
       >
-        <Plus size={24} />
+        {isDateSelectionMode ? <X size={24} /> : <Plus size={24} />}
       </button>
     </div>
   );

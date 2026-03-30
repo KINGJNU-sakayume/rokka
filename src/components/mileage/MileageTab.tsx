@@ -33,11 +33,11 @@ export default function MileageTab({
   onAddRecord, onRemoveRecord, onConfirmElite, onRevokeElite,
   onSetEarlyPromotion, onAddMissed, onRemoveMissed,
 }: MileageTabProps) {
-  const [subTab, setSubTab] = useState<SubTab>('mileage');
+  const [subTab, setSubTab] = useState<SubTab>('vacation');
 
   const TABS: { id: SubTab; label: string; Icon: any }[] = [
-    { id: 'mileage',    label: '마일리지', Icon: Star    },
     { id: 'vacation',   label: '휴가',     Icon: Umbrella },
+    { id: 'mileage',    label: '마일리지', Icon: Star    },
     { id: 'basicSkill', label: '병기본',   Icon: Shield  },
   ];
 
