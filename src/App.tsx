@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
-import { useAuth, AuthProvider } from './context/AuthContext';
-import { useSupabaseAppState } from './hooks/useSupabaseAppState';
+import { useProfile, ProfileProvider } from './context/ProfileContext';
+import { useLocalAppState } from './hooks/useLocalAppState';
 
 import { toISODateString, getEventsForDate } from './utils/dateUtils';
 import { getMostRecentChurchDay } from './logic/churchLogic';
@@ -22,7 +22,7 @@ import MileageTab from './components/mileage/MileageTab';
 import OnboardingModal, { type OnboardingPromoData } from './components/modals/OnboardingModal';
 import ChurchAttendanceModal from './components/modals/ChurchAttendanceModal';
 import SettingsModal from './components/modals/SettingsModal';
-import AuthScreen from './components/auth/AuthScreen';
+import ProfileSetupScreen from './components/auth/ProfileSetupScreen';
 
 // 어느 단계에서 로딩 중인지 표시 → 무한 로딩 원인 파악용
 function LoadingScreen({ reason }: { reason: string }) {
@@ -48,9 +48,9 @@ function AppInner() {
     confirmEliteWarrior, revokeEliteWarrior,
     setEarlyPromotion,
     addMissedPromotion, removeMissedPromotion,
-  } = useSupabaseAppState();
+  } = useLocalAppState();
 
-  const { signOut, profile } = useAuth();
+  const { profile, clearProfile } = useProfile();
 
   const [activeTab,    setActiveTab]    = useState<ActiveTab>('dashboard');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -201,7 +201,7 @@ function AppInner() {
             enlistmentDate={userData.enlistmentDate}
             onResetAll={resetAll}
             onUpdateEnlistmentDate={completeOnboarding}
-            onSignOut={signOut}
+            onSignOut={clearProfile}
             profile={profile}
           />
           {churchModal && (
@@ -220,17 +220,17 @@ function AppInner() {
   );
 }
 
-function AuthGate() {
-  const { session, loading } = useAuth();
-  if (loading) return <LoadingScreen reason="세션 확인 중" />;
-  if (!session) return <AuthScreen onAuthenticated={() => {}} />;
+function ProfileGate() {
+  const { profile, loading } = useProfile();
+  if (loading) return <LoadingScreen reason="프로필 로딩 중" />;
+  if (!profile) return <ProfileSetupScreen />;
   return <AppInner />;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AuthGate />
-    </AuthProvider>
+    <ProfileProvider>
+      <ProfileGate />
+    </ProfileProvider>
   );
 }

@@ -30,18 +30,6 @@ export interface UserProfile {
 
 // ─── 헬퍼 ─────────────────────────────────────────────────────────────────────
 
-/** 군번 → Supabase Auth email (ASCII 전용) */
-export function buildEmail(
-  serial: string,
-  company: CompanyCode,
-  battalion: BattalionCode,
-): string {
-  // 군번 하이픈 제거 + 유효한 도메인 형식 사용
-  // 예: 25-12345678 + 1co + 155bn → 2512345678.1co@155bn.mil
-  const cleanSerial = serial.replace('-', '');
-  return `${cleanSerial}.${company}@${battalion}.mil`;
-}
-
 /** 화면 표시용 계정 ID */
 export function formatDisplayId(profile: Pick<UserProfile, 'name' | 'unit_company' | 'unit_battalion'>): string {
   return `${profile.name} · ${COMPANY_LABELS[profile.unit_company]} · ${BATTALION_LABELS[profile.unit_battalion]}`;
