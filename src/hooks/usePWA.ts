@@ -36,7 +36,7 @@ export function usePWA(): PWAState {
     window.addEventListener('appinstalled', handleAppInstalled);
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
+      navigator.serviceWorker.register('/rokka/sw.js').catch((err) => {
         console.warn('[PWA] Service Worker 등록 실패:', err);
       });
     }
