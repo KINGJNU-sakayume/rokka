@@ -12,8 +12,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom'],
-          'supabase-vendor': ['@supabase/supabase-js'],
           'date-vendor': ['date-fns'],
+          'dexie-vendor': ['dexie'],
         },
       },
     },

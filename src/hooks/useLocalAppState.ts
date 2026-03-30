@@ -1,18 +1,18 @@
 /**
- * useSupabaseAppState
+ * useLocalAppState
  *
- * 기존 useAppState (localStorage) 를 Supabase 기반으로 완전 대체합니다.
- * 반환 인터페이스는 App.tsx 가 사용하는 useAppState 와 동일하게 유지됩니다.
+ * localStorage/IndexedDB 기반 앱 상태 관리 훅.
+ * useSupabaseAppState 와 완전히 동일한 반환 인터페이스를 유지합니다.
  *
  * 전략:
- *  - 로그인 직후 app_data 테이블에서 전체 데이터를 한 번에 로드
- *  - 변경이 발생하면 로컬 state 를 즉시 반영(optimistic) + Supabase 비동기 저장
- *  - profiles 테이블에서 userData (입대일, 온보딩 여부) 를 관리
+ *  - IndexedDB(Dexie)에서 전체 데이터를 한 번에 로드
+ *  - userData(입대일, 온보딩 여부)는 ProfileContext에서 관리
+ *  - 변경이 발생하면 로컬 state 즉시 반영(optimistic) + IndexedDB 비동기 저장
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../context/AuthContext';
+import { db, LOCAL_USER_ID, type AppDataRecord } from '../lib/db';
+import { useProfile } from '../context/ProfileContext';
 import { generateId } from '../utils/mileageUtils';
 import { calcExpiresAt } from '../logic/basicSkillLogic';
 import { toISODateString, addMonths, parseISO } from '../utils/dateUtils';
@@ -28,35 +28,7 @@ import type { BasicSkillData, BasicSkillSubject, BasicSkillGrade } from '../type
 import { KOREAN_PUBLIC_HOLIDAYS } from '../constants/holidays';
 import { format, parseISO as dfParseISO, addDays, getDay } from 'date-fns';
 
-// ─── DB row 타입 ──────────────────────────────────────────────────────────────
-interface AppDataRow {
-  user_id:       string;
-  vacation:      VacationData;
-  mileage:       MileageData;
-  schedule:      ScheduleData;
-  church_check:  ChurchCheckData;
-  basic_skill:   BasicSkillData;
-  week_schedules: Record<string, string>;
-}
-
-// ─── Supabase 저장 헬퍼 ────────────────────────────────────────────────────────
-async function saveColumn(userId: string, column: string, value: unknown) {
-  const { error } = await supabase
-    .from('app_data')
-    .update({ [column]: value })
-    .eq('user_id', userId);
-  if (error) console.error(`[Supabase] save ${column}:`, error.message);
-}
-
-async function saveProfile(userId: string, patch: Record<string, unknown>) {
-  const { error } = await supabase
-    .from('profiles')
-    .update(patch)
-    .eq('id', userId);
-  if (error) console.error('[Supabase] save profile:', error.message);
-}
-
-// ─── getRewardVacationTotal (useVacation 의 동일 함수) ────────────────────────
+// ─── getRewardVacationTotal ────────────────────────────────────────────────────
 export function getRewardVacationTotal(vacation: VacationData): number {
   const today = format(new Date(), 'yyyy-MM-dd');
   const earned = (vacation.rewardVacation.history ?? [])
@@ -65,102 +37,80 @@ export function getRewardVacationTotal(vacation: VacationData): number {
   return Math.max(0, earned - (vacation.rewardVacation.usedDays ?? 0));
 }
 
+// ─── 기본 레코드 ────────────────────────────────────────────────────────────────
+const DEFAULT_RECORD: Omit<AppDataRecord, 'userId'> = {
+  vacation:      DEFAULT_VACATION,
+  mileage:       DEFAULT_MILEAGE,
+  schedule:      DEFAULT_SCHEDULE,
+  church_check:  DEFAULT_CHURCH_CHECK,
+  basic_skill:   DEFAULT_BASIC_SKILL,
+  week_schedules: {},
+};
+
 // ─── 메인 훅 ──────────────────────────────────────────────────────────────────
-export function useSupabaseAppState() {
-  const { session, profile, refreshProfile } = useAuth();
-  const userId = session?.user?.id ?? null;
+export function useLocalAppState() {
+  const { profile, saveProfile, clearProfile } = useProfile();
+
+  // ── userData: ProfileContext에서 파생 ─────────────────────────────────────
+  const userData: UserData = {
+    enlistmentDate: profile?.enlistment_date ?? '',
+    hasCompletedOnboarding: profile?.has_completed_onboarding ?? false,
+  };
 
   // ── 로컬 상태 ─────────────────────────────────────────────────────────────
-  const [dataLoaded, setDataLoaded] = useState(false);
-  const [userData,       setUserData]       = useState<UserData>({
-    enlistmentDate: '', hasCompletedOnboarding: false,
-  });
-  const [vacationData,   setVacationData]   = useState<VacationData>(DEFAULT_VACATION);
-  const [mileageData,    setMileageData]    = useState<MileageData>(DEFAULT_MILEAGE);
-  const [scheduleData,   setScheduleData]   = useState<ScheduleData>(DEFAULT_SCHEDULE);
-  const [churchCheckData,setChurchCheckData]= useState<ChurchCheckData>(DEFAULT_CHURCH_CHECK);
-  const [basicSkillData, setBasicSkillData] = useState<BasicSkillData>(DEFAULT_BASIC_SKILL);
-  const [weekSchedules,  setWeekSchedules]  = useState<Record<string, string>>({});
+  const [dataLoaded,      setDataLoaded]      = useState(false);
+  const [vacationData,    setVacationData]    = useState<VacationData>(DEFAULT_VACATION);
+  const [mileageData,     setMileageData]     = useState<MileageData>(DEFAULT_MILEAGE);
+  const [scheduleData,    setScheduleData]    = useState<ScheduleData>(DEFAULT_SCHEDULE);
+  const [churchCheckData, setChurchCheckData] = useState<ChurchCheckData>(DEFAULT_CHURCH_CHECK);
+  const [basicSkillData,  setBasicSkillData]  = useState<BasicSkillData>(DEFAULT_BASIC_SKILL);
+  const [weekSchedules,   setWeekSchedules]   = useState<Record<string, string>>({});
 
   // ── 데이터 로드 ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!userId) {
-      // 세션 없음 → 로딩 종료 (AuthGate에서 로그인 화면으로 분기됨)
-      setDataLoaded(true);
-      return;
-    }
-
-    // 쿼리에 타임아웃을 걸어 hang 방지
-    function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-      return Promise.race([
-        promise,
-        new Promise<T>((_, reject) =>
-          setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms)
-        ),
-      ]);
-    }
-
     const load = async () => {
       try {
-        // AuthContext에서 이미 로드된 profile을 직접 사용 (별도 DB 쿼리 불필요)
-        if (profile) {
-          setUserData({
-            enlistmentDate: profile.enlistment_date ?? '',
-            hasCompletedOnboarding: profile.has_completed_onboarding ?? false,
-          });
+        let row = await db.appData.get(LOCAL_USER_ID);
+        if (!row) {
+          row = { userId: LOCAL_USER_ID, ...DEFAULT_RECORD };
+          await db.appData.put(row);
         }
-
-        // app_data 조회 (5초 타임아웃)
-        const query = supabase
-          .from('app_data')
-          .select('*')
-          .eq('user_id', userId)
-          .single();
-        const queryPromise = Promise.resolve(query);
-        const result = await withTimeout(queryPromise, 5000);
-
-        const { data, error } = result as { data: unknown; error: { message: string } | null };
-
-        if (error) {
-          console.error('[Supabase] load app_data:', error.message);
-        } else {
-          const row = data as unknown as AppDataRow;
-          if (row.vacation)       setVacationData(row.vacation);
-          if (row.mileage)        setMileageData(row.mileage);
-          if (row.schedule)       setScheduleData(row.schedule);
-          if (row.church_check)   setChurchCheckData(row.church_check);
-          if (row.basic_skill)    setBasicSkillData(row.basic_skill);
-          if (row.week_schedules) setWeekSchedules(row.week_schedules);
-        }
+        if (row.vacation)       setVacationData(row.vacation);
+        if (row.mileage)        setMileageData(row.mileage);
+        if (row.schedule)       setScheduleData(row.schedule);
+        if (row.church_check)   setChurchCheckData(row.church_check);
+        if (row.basic_skill)    setBasicSkillData(row.basic_skill);
+        if (row.week_schedules) setWeekSchedules(row.week_schedules);
       } catch (e) {
-        console.error('[Supabase] load 예외 (타임아웃 포함):', e);
+        console.error('[useLocalAppState] load 예외:', e);
       } finally {
         setDataLoaded(true);
       }
     };
-
     load();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, profile]);
+  }, []);
 
-  // ── 저장 래퍼 (낙관적 업데이트) ───────────────────────────────────────────
-  const save = useCallback((col: string, val: unknown) => {
-    if (userId) saveColumn(userId, col, val);
-  }, [userId]);
+  // ── IndexedDB 저장 래퍼 ───────────────────────────────────────────────────
+  const saveField = useCallback(
+    (field: keyof Omit<AppDataRecord, 'userId'>, value: unknown) => {
+      db.appData
+        .update(LOCAL_USER_ID, { [field]: value })
+        .catch(e => console.error(`[useLocalAppState] save ${field}:`, e));
+    },
+    [],
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // userData / onboarding
   // ─────────────────────────────────────────────────────────────────────────
   const completeOnboarding = useCallback((enlistmentDate: string) => {
-    const next = { enlistmentDate, hasCompletedOnboarding: true };
-    setUserData(next);
-    if (userId) {
-      saveProfile(userId, {
-        enlistment_date: enlistmentDate,
-        has_completed_onboarding: true,
-      });
-    }
-  }, [userId]);
+    if (!profile) return;
+    saveProfile({
+      ...profile,
+      enlistment_date: enlistmentDate,
+      has_completed_onboarding: true,
+    });
+  }, [profile, saveProfile]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // scheduleData
@@ -177,7 +127,7 @@ export function useSupabaseAppState() {
         if (!rest) {
           const blocked = existing.some(
             e => e.date === ds &&
-              ['duty','vacation','full_combat_rest','after_duty_sleep'].includes(e.type)
+              ['duty', 'vacation', 'full_combat_rest', 'after_duty_sleep'].includes(e.type)
           );
           if (!blocked) return ds;
         }
@@ -191,7 +141,7 @@ export function useSupabaseAppState() {
 
       if (event.type === 'duty') sleepSources.push(event.date);
 
-      if (['duty','vacation','full_combat_rest'].includes(event.type)) {
+      if (['duty', 'vacation', 'full_combat_rest'].includes(event.type)) {
         const overlapped = events.filter(
           e => e.type === 'after_duty_sleep' && e.date === event.date
         );
@@ -207,20 +157,20 @@ export function useSupabaseAppState() {
       }
 
       const next = { ...prev, events };
-      save('schedule', next);
+      saveField('schedule', next);
       return next;
     });
 
     return newEvent;
-  }, [save]);
+  }, [saveField]);
 
   const removeScheduleEvent = useCallback((id: string) => {
     setScheduleData(prev => {
       const next = { ...prev, events: prev.events.filter(e => e.id !== id) };
-      save('schedule', next);
+      saveField('schedule', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // vacationData
@@ -228,10 +178,10 @@ export function useSupabaseAppState() {
   const updateVacation = useCallback((updater: (prev: VacationData) => VacationData) => {
     setVacationData(prev => {
       const next = updater(prev);
-      save('vacation', next);
+      saveField('vacation', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   const addRewardVacation = useCallback((daysEarned: number, dateEarned: string, description?: string) => {
     const entry: RewardVacationEntry = {
@@ -291,10 +241,10 @@ export function useSupabaseAppState() {
   const addMileageEntry = useCallback((entry: MileageEntry) => {
     setMileageData(prev => {
       const next = { total: prev.total + entry.amount, history: [entry, ...prev.history] };
-      save('mileage', next);
+      saveField('mileage', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // churchCheckData
@@ -305,10 +255,10 @@ export function useSupabaseAppState() {
         ? [...prev.attendedDates, attendedDate]
         : prev.attendedDates;
       const next = { lastCheckedDate: toISODateString(new Date()), attendedDates: attended };
-      save('church_check', next);
+      saveField('church_check', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // basicSkillData
@@ -316,10 +266,10 @@ export function useSupabaseAppState() {
   const updateBasicSkill = useCallback((updater: (prev: BasicSkillData) => BasicSkillData) => {
     setBasicSkillData(prev => {
       const next = updater(prev);
-      save('basic_skill', next);
+      saveField('basic_skill', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   const addRecord = useCallback((subject: BasicSkillSubject, grade: BasicSkillGrade, acquiredDate: string) => {
     updateBasicSkill(prev => ({
@@ -371,45 +321,33 @@ export function useSupabaseAppState() {
   const setWeekName = useCallback((sundayKey: string, name: string) => {
     setWeekSchedules(prev => {
       const next = { ...prev, [sundayKey]: name };
-      save('week_schedules', next);
+      saveField('week_schedules', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   const removeWeekName = useCallback((sundayKey: string) => {
     setWeekSchedules(prev => {
       const next = { ...prev };
       delete next[sundayKey];
-      save('week_schedules', next);
+      saveField('week_schedules', next);
       return next;
     });
-  }, [save]);
+  }, [saveField]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // resetAll
   // ─────────────────────────────────────────────────────────────────────────
   const resetAll = useCallback(async () => {
-    if (!userId) return;
-    const defaults = {
-      vacation:      DEFAULT_VACATION,
-      mileage:       DEFAULT_MILEAGE,
-      schedule:      DEFAULT_SCHEDULE,
-      church_check:  DEFAULT_CHURCH_CHECK,
-      basic_skill:   DEFAULT_BASIC_SKILL,
-      week_schedules: {},
-    };
-    await supabase.from('app_data').update(defaults).eq('user_id', userId);
-    await saveProfile(userId, { enlistment_date: null, has_completed_onboarding: false });
-
+    await db.appData.delete(LOCAL_USER_ID);
     setVacationData(DEFAULT_VACATION);
     setMileageData(DEFAULT_MILEAGE);
     setScheduleData(DEFAULT_SCHEDULE);
     setChurchCheckData(DEFAULT_CHURCH_CHECK);
     setBasicSkillData(DEFAULT_BASIC_SKILL);
     setWeekSchedules({});
-    setUserData({ enlistmentDate: '', hasCompletedOnboarding: false });
-    await refreshProfile();
-  }, [userId, refreshProfile]);
+    clearProfile();
+  }, [clearProfile]);
 
   // ─────────────────────────────────────────────────────────────────────────
   return {
