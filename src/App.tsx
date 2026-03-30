@@ -58,6 +58,8 @@ function AppInner() {
     isOpen: boolean; date: Date; dayName: '수요일' | '일요일';
   } | null>(null);
 
+  const { isInstallable, promptInstall } = usePWA();
+
   const churchCheckRef  = useRef(churchCheckData);
   const scheduleDataRef = useRef(scheduleData);
   const updateChurchRef = useRef(updateChurchCheck);
@@ -135,7 +137,6 @@ function AppInner() {
       addRewardVacation(1, toISODateString(new Date()), '마일리지 사용');
   };
 
-  const { isInstallable, promptInstall } = usePWA();
   const weekendLeaveBlocked = isLeaveBlocked(basicSkillData, userData.enlistmentDate);
   const isOnboarding        = !userData.hasCompletedOnboarding;
 
