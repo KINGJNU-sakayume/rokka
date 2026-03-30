@@ -140,11 +140,12 @@ function AppInner() {
   const weekendLeaveBlocked = isLeaveBlocked(basicSkillData, userData.enlistmentDate);
   const isOnboarding        = !userData.hasCompletedOnboarding;
 
-  const handleOnboardingComplete = (enlistmentDate: string, promoData: OnboardingPromoData) => {
+  const handleOnboardingComplete = (enlistmentDate: string, promoData: OnboardingPromoData, initialMileage: number) => {
     completeOnboarding(enlistmentDate);
     setEarlyPromotion(promoData.earlyToCorporal, promoData.earlyToSergeant);
     for (let i = 0; i < promoData.missedCorporal;  i++) addMissedPromotion('상병', '');
     for (let i = 0; i < promoData.missedSergeant; i++) addMissedPromotion('병장', '');
+    if (initialMileage > 0) addMileageEntry(createMileageEntry('officer_grant', initialMileage, '초기 마일리지 잔액'));
   };
 
   return (

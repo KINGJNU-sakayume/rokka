@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Award, Shield, ChevronDown, ChevronUp, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Award, Shield, ChevronDown, ChevronUp, CheckCircle, XCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { BasicSkillData, BasicSkillSubject, BasicSkillGrade, MilitaryRank } from '../../types/basicSkill';
 import { ALL_SUBJECTS, ALL_GRADES, SUBJECT_LABELS, GRADE_COLORS } from '../../types/basicSkill';
@@ -25,6 +25,7 @@ export default function BasicSkillSection({
   onSetEarlyPromotion, onAddMissed, onRemoveMissed,
 }: Props) {
   const [showAddForm, setShowAddForm]         = useState(false);
+  const [formLockedSubject, setFormLockedSubject] = useState<BasicSkillSubject | null>(null);
   const [showPromoMgmt, setShowPromoMgmt]     = useState(false);
   const [addSubject, setAddSubject]           = useState<BasicSkillSubject>('physical');
   const [addGrade, setAddGrade]               = useState<BasicSkillGrade>('2급');
@@ -130,15 +131,6 @@ export default function BasicSkillSection({
           </div>
         )}
 
-        {/* 미달 과목 경고 */}
-        {eligibility && !eligibility.isEligible && !eligibility.isAutoPromo && eligibility.failingSubjects.length > 0 && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
-            <AlertTriangle size={13} className="text-red-500 mt-0.5 shrink-0"/>
-            <p className="text-xs text-red-700">
-              진급 미달: {eligibility.failingSubjects.map(s => SUBJECT_LABELS[s]).join(', ')}
-            </p>
-          </div>
-        )}
       </div>
 
       {/* ── 특급전사 배너 ── */}
@@ -284,7 +276,7 @@ export default function BasicSkillSection({
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-700">과목별 성적</h3>
-          <button onClick={() => setShowAddForm(v => !v)}
+          <button onClick={() => { setFormLockedSubject(null); setShowAddForm(v => !v); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-army-dark text-white rounded-lg text-xs font-medium hover:bg-army-dark/90 transition-colors">
             <Plus size={12}/> 성적 추가
           </button>
@@ -296,7 +288,8 @@ export default function BasicSkillSection({
             <div>
               <label className="block text-[10px] text-gray-500 mb-1">과목</label>
               <select value={addSubject} onChange={e => setAddSubject(e.target.value as BasicSkillSubject)}
-                className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:border-army-green-400">
+                disabled={formLockedSubject !== null}
+                className={`w-full border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:border-army-green-400 ${formLockedSubject !== null ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}>
                 {ALL_SUBJECTS.map(s => <option key={s} value={s}>{SUBJECT_LABELS[s]}</option>)}
               </select>
             </div>
@@ -315,9 +308,9 @@ export default function BasicSkillSection({
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setShowAddForm(false)}
+              <button onClick={() => { setShowAddForm(false); setFormLockedSubject(null); }}
                 className="flex-1 py-2 border border-gray-200 text-gray-500 text-xs font-medium rounded-xl">취소</button>
-              <button onClick={() => { onAddRecord(addSubject, addGrade, addDate ? addDate + '-01' : ''); setShowAddForm(false); }}
+              <button onClick={() => { onAddRecord(addSubject, addGrade, addDate ? addDate + '-01' : ''); setShowAddForm(false); setFormLockedSubject(null); }}
                 className="flex-1 py-2 bg-army-dark text-white text-xs font-semibold rounded-xl hover:bg-army-dark/90 transition-colors">저장</button>
             </div>
           </div>
@@ -332,12 +325,20 @@ export default function BasicSkillSection({
               .filter(r => r.expiresAt >= today)
               .sort((a,b) => b.acquiredDate.localeCompare(a.acquiredDate))[0];
             const allExpired = subjectRecords.length > 0 && !latestValid;
+            const isFailing = !!(eligibility && !eligibility.isAutoPromo && eligibility.failingSubjects.includes(subject));
 
             return (
-              <div key={subject} className="border border-gray-100 rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2.5 bg-gray-50">
+              <div key={subject} className={`border rounded-xl overflow-hidden ${isFailing ? 'border-red-300 border-l-4 border-l-red-500' : 'border-gray-100'}`}>
+                <div
+                  className="flex items-center justify-between px-3 py-2.5 bg-gray-50 cursor-pointer hover:bg-army-green-50 transition-colors"
+                  onClick={() => {
+                    setAddSubject(subject);
+                    setFormLockedSubject(subject);
+                    setShowAddForm(true);
+                  }}
+                >
                   <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold text-gray-700">{SUBJECT_LABELS[subject]}</p>
+                    <p className={`text-xs font-semibold ${isFailing ? 'text-red-600' : 'text-gray-700'}`}>{SUBJECT_LABELS[subject]}</p>
                     {allExpired && <span className="text-[10px] text-red-500 font-medium">(만료)</span>}
                   </div>
                   <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${GRADE_COLORS[currentGrade]}`}>
