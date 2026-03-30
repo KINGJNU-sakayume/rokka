@@ -1,8 +1,8 @@
 const CACHE_NAME = 'mil-app-v1';
 const STATIC_ASSETS = [
-  '/',
-  '/manifest.json',
-  '/icons/icon.svg',
+  '/rokka/',
+  '/rokka/manifest.json',
+  '/rokka/icons/icon.svg',
 ];
 
 self.addEventListener('install', (event) => {
@@ -41,7 +41,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match('/').then((r) => r ?? new Response('Offline', { status: 503 })))
+        .catch(() => caches.match('/rokka/').then((r) => r ?? new Response('Offline', { status: 503 })))
     );
     return;
   }

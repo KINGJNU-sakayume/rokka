@@ -2,7 +2,7 @@
   "name": "군생활 관리 - 155대대",
   "short_name": "군생활",
   "description": "대한민국 육군 155대대 병사를 위한 스마트 군 생활 관리 앱",
-  "start_url": "/",
+  "start_url": "/rokka/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0d1520",
@@ -10,13 +10,13 @@
   "lang": "ko",
   "icons": [
     {
-      "src": "/icons/icon.svg",
+      "src": "/rokka/icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon.svg",
+      "src": "/rokka/icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
