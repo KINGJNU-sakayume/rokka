@@ -179,6 +179,14 @@ create policy "Users can update own app_data" on app_data for update to authenti
 npm run dev
 ```
 
+그 밖의 명령:
+
+```bash
+npm run lint        # ESLint
+npm run typecheck   # tsc --noEmit -p tsconfig.app.json
+npm run preview     # 빌드 결과(dist/)를 로컬에서 확인
+```
+
 ---
 
 ## 배포
